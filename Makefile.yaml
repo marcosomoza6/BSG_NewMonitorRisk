@@ -1,0 +1,17 @@
+# FLOWER BOX
+.PHONY: venv install test run lint
+
+venv:
+	python -m venv .venv
+
+install:
+	. .venv/bin/activate && pip install -r requirements.txt
+
+test:
+	. .venv/bin/activate && pytest -q
+
+lint:
+	. .venv/bin/activate && python -m compileall src
+
+run:
+	. .venv/bin/activate && python -m pipeline.main

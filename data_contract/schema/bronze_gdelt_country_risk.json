@@ -1,0 +1,26 @@
+{
+  "name": "bronze_gdelt_country_risk",
+  "layer": "bronze",
+  "description": "Reference CSV as-delivered for country risk baseline (project-defined).",
+  "format": "csv",
+  "partitioning": {
+    "type": "gcs_prefix",
+    "path_template": "bronze/gdelt/reference/ingestion_date=YYYY-MM-DD/"
+  },
+  "required_columns": [
+    "country", 
+    "baseline_risk", 
+    "risk_multiplier", 
+    "updated_at"
+  ],
+  "schema": {
+    "type": "object",
+    "properties": {
+      "country": { "type": "string", "minLength": 2, "maxLength": 2 },
+      "baseline_risk": { "type": "number", "description": "0..1 baseline risk by country" },
+      "risk_multiplier": { "type": "number", "description": "Multiplier applied to risk_weight" },
+      "updated_at": { "type": "string", "description": "ISO date or timestamp for versioning" }
+    },
+    "required": ["country", "baseline_risk", "risk_multiplier", "updated_at"]
+  }
+}

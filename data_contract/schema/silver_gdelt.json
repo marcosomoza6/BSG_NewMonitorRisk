@@ -1,0 +1,73 @@
+{
+  "name": "silver_gdelt_events_curated",
+  "layer": "silver",
+  "description": "Curated GDELT events normalized, typed, deduplicated, enriched with country risk reference; stored as Parquet.",
+  "format": "parquet",
+  "partitioning": {
+    "type": "gcs_prefix",
+    "column": "event_date",
+    "path_template": "silver/gdelt/event_date=YYYY-MM-DD/"
+  },
+  "primary_key": ["globaleventid"],
+  "required_columns": [
+    "globaleventid",
+    "event_date",
+    "quadclass",
+    "goldstein_scale",
+    "actiongeo_fullname",
+    "actiongeo_countrycode",
+    "actiongeo_adm1code",
+    "actiongeo_lat",
+    "actiongeo_long",
+    "country",
+    "city",
+    "risk_weight",
+    "baseline_risk",
+    "risk_multiplier",
+    "risk_weight_adj",
+    "ingestion_date",
+    "ingestion_ts"
+  ],
+  "schema": {
+    "type": "object",
+    "properties": {
+      "globaleventid": { "type": "integer" },
+      "event_date": { "type": "string", "description": "YYYY-MM-DD" },
+      "quadclass": { "type": "integer", "minimum": 1, "maximum": 4 },
+      "goldstein_scale": { "type": "number" },
+
+      "actiongeo_fullname": { "type": ["string", "null"] },
+      "actiongeo_countrycode": { "type": ["string", "null"], "minLength": 2, "maxLength": 2 },
+      "actiongeo_adm1code": { "type": ["string", "null"] },
+      "actiongeo_lat": { "type": ["number", "null"] },
+      "actiongeo_long": { "type": ["number", "null"] },
+
+      "country": { "type": "string", "minLength": 2, "maxLength": 2 },
+      "city": { "type": ["string", "null"] },
+
+      "risk_weight": { "type": "number" },
+      "baseline_risk": { "type": ["number", "null"], "description": "Reference baseline per country (0..1)." },
+      "risk_multiplier": { "type": ["number", "null"], "description": "Reference multiplier per country." },
+      "risk_weight_adj": { "type": "number", "description": "risk_weight * coalesce(risk_multiplier,1.0)" },
+
+      "ingestion_date": { "type": "string", "description": "YYYY-MM-DD" },
+      "ingestion_ts": { "type": "string", "description": "UTC timestamp" }
+    },
+    "required": [
+      "globaleventid",
+      "event_date",
+      "quadclass",
+      "country",
+      "risk_weight",
+      "risk_weight_adj",
+      "ingestion_date",
+      "ingestion_ts"
+    ]
+  },
+  "data_quality_rules": [
+    { "rule": "event_date_not_null", "description": "event_date must not be null" },
+    { "rule": "globaleventid_not_null", "description": "globaleventid must not be null" },
+    { "rule": "country_len_2", "description": "country must be 2-letter code" },
+    { "rule": "dedup_by_globaleventid", "description": "keep 1 row per globaleventid" }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "bronze_gdelt_events",
+  "layer": "bronze",
+  "description": "Raw GDELT events as-delivered (CSV/TSV), plus minimal ingestion metadata.",
+  "format": "csv_tsv",
+  "partitioning": {
+    "type": "gcs_prefix",
+    "path_template": "bronze/gdelt/events/ingestion_date=YYYY-MM-DD/"
+  },
+  "required_metadata": [
+    "ingestion_ts",
+    "ingestion_date",
+    "source_file",
+    "source_system"
+  ],
+  "schema": {
+    "type": "object",
+    "properties": {
+      "ingestion_ts": { "type": "string", "description": "UTC timestamp when file was ingested." },
+      "ingestion_date": { "type": "string", "description": "Partition date YYYY-MM-DD used for landing." },
+      "source_file": { "type": "string", "description": "File name ingested (e.g., gdelt_event_YYYYMMDD.csv)." },
+      "source_system": { "type": "string", "enum": ["gdelt"], "description": "Data source system identifier." }
+    },
+    "required": ["ingestion_ts", "ingestion_date", "source_file", "source_system"]
+  }
+}
