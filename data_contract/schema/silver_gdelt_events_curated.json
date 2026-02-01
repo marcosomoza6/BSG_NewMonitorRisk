@@ -6,28 +6,11 @@
   "partitioning": {
     "type": "gcs_prefix",
     "column": "event_date",
-    "path_template": "silver/gdelt/event_date=YYYY-MM-DD/"
+    "path_template": "new-risk-monitor/gdelt/silver/events/event_date=YYYY-MM-DD/"
   },
   "primary_key": ["globaleventid"],
-  "required_columns": [
-    "globaleventid",
-    "event_date",
-    "quadclass",
-    "goldstein_scale",
-    "actiongeo_fullname",
-    "actiongeo_countrycode",
-    "actiongeo_adm1code",
-    "actiongeo_lat",
-    "actiongeo_long",
-    "country",
-    "city",
-    "risk_weight",
-    "baseline_risk",
-    "risk_multiplier",
-    "risk_weight_adj",
-    "ingestion_date",
-    "ingestion_ts"
-  ],
+  "required_columns": ["globaleventid","event_date","quadclass","goldstein_scale","actiongeo_fullname","actiongeo_countrycode","actiongeo_adm1code","actiongeo_lat",
+                       "actiongeo_long","country","city","risk_weight","baseline_risk","risk_multiplier","risk_weight_adj","ingestion_date","ingestion_ts"],
   "schema": {
     "type": "object",
     "properties": {
@@ -53,16 +36,7 @@
       "ingestion_date": { "type": "string", "description": "YYYY-MM-DD" },
       "ingestion_ts": { "type": "string", "description": "UTC timestamp" }
     },
-    "required": [
-      "globaleventid",
-      "event_date",
-      "quadclass",
-      "country",
-      "risk_weight",
-      "risk_weight_adj",
-      "ingestion_date",
-      "ingestion_ts"
-    ]
+    "required": ["globaleventid","event_date","quadclass","country","risk_weight","risk_weight_adj","ingestion_date","ingestion_ts"]
   },
   "data_quality_rules": [
     { "rule": "event_date_not_null", "description": "event_date must not be null" },

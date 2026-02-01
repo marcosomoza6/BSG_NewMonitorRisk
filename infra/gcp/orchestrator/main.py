@@ -1,99 +1,116 @@
 import os
 import re
 import subprocess
+from flask        import Flask, request
 from google.cloud import storage
 
-PROJECT = os.environ["GCP_PROJECT_ID"]
-REGION  = os.environ.get("GCP_REGION", "us-east1")
-BUCKET  = os.environ["GCS_BUCKET"]
-SA      = os.environ["SERVICE_ACCOUNT_EMAIL"]
+##########################################################################################################
+# Archivo     : main.py                                                                                  #
+# Nombre      : Marco Somoza                                                                             #
+# Descripción : Orquestador (Cloud Run). Se activa por Eventarc (GCS finalized) en bucket Landing,       #
+#               filtra solo events, encuentra reference más reciente y lanza Dataproc Serverless batch.  #
+#                                                                                                        #
+##########################################################################################################
+app = Flask(__name__)
 
-BQ_DATASET = os.environ["BQ_DATASET"]
-BQ_TABLE   = os.environ["BQ_TABLE_GOLD"]
-BQ_GCS_BUCKET = os.environ["BQ_GCS_BUCKET"]  # staging bucket for connector
-PYSPARK_URI = os.environ["PYSPARK_URI"]
-
-EVENTS_PREFIX = "landing-zone/gdelt/events/"
-REF_PREFIX    = "landing-zone/gdelt/reference/"
+PROJECT_ID                 = os.environ["GCP_PROJECT_ID"]
+REGION                     = os.environ.get("GCP_REGION", "us-east1")
+SERVICE_ACCOUNT            = os.environ["SERVICE_ACCOUNT_EMAIL"]
+BUCKET_LANDING             = os.environ["GCS_BUCKET_LANDING"]
+BUCKET_PROCESS             = os.environ["GCS_BUCKET_PROCESS"]
+BUCKET_DATABASE            = os.environ["GCS_BUCKET_DATABASE"]
+LANDING_EVENTS_PREFIX      = os.environ["LANDING_EVENTS_PREFIX"]      # new-risk-monitor/gdelt/landing/events
+LANDING_REF_PREFIX         = os.environ["LANDING_REF_PREFIX"]         # new-risk-monitor/gdelt/reference/country_risk
+BRONZE_EVENTS_PREFIX       = os.environ["BRONZE_EVENTS_PREFIX"]       # new-risk-monitor/gdelt/bronze/events
+BRONZE_COUNTRY_RISK_PREFIX = os.environ["BRONZE_COUNTRY_RISK_PREFIX"] # new-risk-monitor/gdelt/bronze/country_risk
+SILVER_EVENTS_PREFIX       = os.environ["SILVER_EVENTS_PREFIX"]       # new-risk-monitor/gdelt/silver/events
+PYSPARK_URI                = os.environ["PYSPARK_URI"]
+BQ_DATASET                 = os.environ["BQ_DATASET"]
+BQ_TABLE                   = os.environ["BQ_TABLE_GOLD"]
 
 def _extract_ingestion_date_and_file(obj_name: str):
-    # landing-zone/gdelt/events/ingestion_date=YYYY-MM-DD/<file>
-    m = re.match(r"^landing-zone/gdelt/events/ingestion_date=(\d{4}-\d{2}-\d{2})/(.+)$", obj_name)
+    pattern = rf"^{re.escape(LANDING_EVENTS_PREFIX)}/ingestion_date=(\d{{4}}-\d{{2}}-\d{{2}})/(.+)$"  # {LANDING_EVENTS_PREFIX}/ingestion_date=YYYY-MM-DD/<file>
+    m       = re.match(pattern, obj_name)
+
     if not m:
         return None, None
+    
     return m.group(1), m.group(2)
 
-def _latest_reference_uri(client: storage.Client, bucket_name: str):
-    # Find latest ingestion_date folder under reference/
-    # We assume folders like: landing-zone/gdelt/reference/ingestion_date=YYYY-MM-DD/<file>
-    bucket = client.bucket(bucket_name)
-
-    # List objects under reference prefix; we’ll infer latest date from paths.
-    blobs = bucket.list_blobs(prefix=REF_PREFIX + "ingestion_date=")
-
-    latest_date = None
+def _latest_reference_uri(client: storage.Client):
+    bucket           = client.bucket(BUCKET_LANDING)
+    blobs            = bucket.list_blobs(prefix=LANDING_REF_PREFIX + "/ingestion_date=")
+    latest_date      = None
     latest_blob_name = None
 
     for b in blobs:
-        # b.name example: landing-zone/gdelt/reference/ingestion_date=2026-01-24/gdelt_country_risk_20260124.csv
-        m = re.match(r"^landing-zone/gdelt/reference/ingestion_date=(\d{4}-\d{2}-\d{2})/(.+)$", b.name)
+        pattern = rf"^{re.escape(LANDING_REF_PREFIX)}/ingestion_date=(\d{{4}}-\d{{2}}-\d{{2}})/(.+)$" # {LANDING_REF_PREFIX}/ingestion_date=YYYY-MM-DD/<file>
+        m       = re.match(pattern, b.name)
+
         if not m:
             continue
+
         date = m.group(1)
-        # pick latest date, and within that we assume single file; first match is ok
+
         if (latest_date is None) or (date > latest_date):
-            latest_date = date
+            latest_date      = date
             latest_blob_name = b.name
 
     if not latest_blob_name:
-        raise RuntimeError("No reference file found under landing-zone/gdelt/reference/ingestion_date=.../")
+        raise RuntimeError("No reference file found under landing reference ingestion_date=...")
 
-    return f"gs://{bucket_name}/{latest_blob_name}", latest_blob_name.split("/")[-1], latest_date
+    ref_uri  = f"gs://{BUCKET_LANDING}/{latest_blob_name}"
+    ref_file = latest_blob_name.split("/")[-1]
 
-def handler(event, context):
-    # Eventarc -> Cloud Run Functions passes Cloud Storage event payload.
+    return ref_uri, ref_file, latest_date
+
+@app.post("/")
+def ingest():
+    event       = request.get_json(force=True)
     bucket_name = event.get("bucket")
-    obj_name = event.get("name")
+    obj_name    = event.get("name")
 
-    if not bucket_name or not obj_name:
-        raise ValueError("Missing bucket or name in event")
+    if bucket_name != BUCKET_LANDING:
+        return ("Ignored: not landing bucket", 200)                          # Validación básica
 
-    # Only react to events files
-    if not obj_name.startswith(EVENTS_PREFIX):
-        return "Ignored (not events prefix)"
+    if not obj_name:
+        return ("Missing name", 400)
 
-    ingestion_date, events_file = _extract_ingestion_date_and_file(obj_name)
+    if obj_name.endswith("/"):                                               # Ignora "folders" (placeholders) si existieran
+        return ("Ignored: folder placeholder", 200)
+
+    ingestion_date, events_file = _extract_ingestion_date_and_file(obj_name) # Solo procesa events de landing
+
     if not ingestion_date:
-        return "Ignored (path not matching ingestion_date pattern)"
+        return ("Ignored: not events ingestion_date path", 200)
+
+    if not (events_file.endswith(".csv") or events_file.endswith(".tsv")):   # Filtrar por extensiones
+        return ("Ignored: not csv/tsv", 200)
 
     client = storage.Client()
-    ref_uri, ref_file, ref_date = _latest_reference_uri(client, bucket_name)
+    ref_uri, ref_file, ref_date = _latest_reference_uri(client)
 
-    events_uri = f"gs://{bucket_name}/{obj_name}"
+    events_uri              = f"gs://{BUCKET_LANDING}/{obj_name}"
+    bronze_events_out       = f"gs://{BUCKET_PROCESS}/{BRONZE_EVENTS_PREFIX}/ingestion_date={ingestion_date}/"
+    bronze_country_risk_out = f"gs://{BUCKET_PROCESS}/{BRONZE_COUNTRY_RISK_PREFIX}/ingestion_date={ingestion_date}/"
+    silver_out              = f"gs://{BUCKET_PROCESS}/{SILVER_EVENTS_PREFIX}/"
 
-    bronze_events_out = f"gs://{bucket_name}/bronze/gdelt/events/ingestion_date={ingestion_date}/"
-    bronze_ref_out    = f"gs://{bucket_name}/bronze/gdelt/reference/ingestion_date={ingestion_date}/"
-    silver_out        = f"gs://{bucket_name}/silver/gdelt/"
-
-    cmd = [
-        "gcloud", "dataproc", "batches", "submit", "pyspark", PYSPARK_URI,
-        "--project", PROJECT,
-        "--region", REGION,
-        "--service-account", SA,
-        "--",
-        "--events_input", events_uri,
-        "--country_risk_input", ref_uri,
-        "--bronze_events_out", bronze_events_out,
-        "--bronze_ref_out", bronze_ref_out,
-        "--silver_out", silver_out,
-        "--bq_project", PROJECT,
-        "--bq_dataset", BQ_DATASET,
-        "--bq_table", BQ_TABLE,
-        "--bq_gcs_bucket", BQ_GCS_BUCKET,
-        "--ingestion_date", ingestion_date,
-        "--events_file_name", events_file,
-        "--ref_file_name", ref_file
-    ]
+    cmd = ["gcloud", "dataproc", "batches", "submit", "pyspark", PYSPARK_URI,
+           "--project"                , PROJECT_ID             ,
+           "--region"                 , REGION                 ,
+           "--service-account"        , SERVICE_ACCOUNT        ,
+           "--"                       ,
+           "--events_input"           , events_uri             ,
+           "--reference_input"        , ref_uri                ,
+           "--bronze_events_out"      , bronze_events_out      ,
+           "--bronze_country_risk_out", bronze_country_risk_out,
+           "--silver_out"             , silver_out             ,
+           "--bq_project"             , PROJECT_ID             ,
+           "--bq_dataset"             , BQ_DATASET             ,
+           "--bq_table"               , BQ_TABLE               ,
+           "--bq_gcs_bucket"          , BUCKET_DATABASE        ,
+           "--ingestion_date"         , ingestion_date]
 
     subprocess.check_call(cmd)
-    return f"OK: launched batch for {events_file} (ingestion_date={ingestion_date}), reference_date={ref_date}"
+    
+    return (f"OK: launched batch for {events_file}, ref_date={ref_date}", 200)

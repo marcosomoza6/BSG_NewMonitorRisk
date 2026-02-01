@@ -1,4 +1,21 @@
-# FLOWER BOX
+##########################################################################################################
+# Archivo     : Makefile.yaml                                                                            #
+# Nombre      : Marco Somoza                                                                             #
+# Descripción : Makefile de apoyo para desarrollo local del proyecto New Risk Monitor.                   #
+#                                                                                                        #
+#               Proporciona comandos estandarizados para:                                                #
+#               - Crear y activar un entorno virtual de Python.                                          #
+#               - Instalar dependencias del proyecto.                                                    #
+#               - Ejecutar pruebas automatizadas.                                                        #
+#               - Validar compilación e imports del código (lint básico).                                #
+#               - Ejecutar el entrypoint del pipeline en modo local.                                     #
+#                                                                                                        #
+#               Este archivo está pensado para:                                                          #
+#               - Facilitar el desarrollo reproducible.                                                  #
+#               - Integrarse fácilmente con CI (GitHub Actions).                                         #
+#               - Evitar comandos manuales repetitivos.                                                  #
+#                                                                                                        #
+##########################################################################################################
 .PHONY: venv install test run lint
 
 venv:

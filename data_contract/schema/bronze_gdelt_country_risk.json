@@ -5,14 +5,9 @@
   "format": "csv",
   "partitioning": {
     "type": "gcs_prefix",
-    "path_template": "bronze/gdelt/reference/ingestion_date=YYYY-MM-DD/"
+    "path_template": "new-risk-monitor/gdelt/bronze/country_risk/ingestion_date=YYYY-MM-DD/"
   },
-  "required_columns": [
-    "country", 
-    "baseline_risk", 
-    "risk_multiplier", 
-    "updated_at"
-  ],
+  "required_columns": ["country", "baseline_risk", "risk_multiplier", "updated_at"],
   "schema": {
     "type": "object",
     "properties": {

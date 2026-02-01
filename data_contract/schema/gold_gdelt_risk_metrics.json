@@ -1,0 +1,45 @@
+{
+  "name": "gold_gdelt_risk_metrics",
+  "layer": "gold",
+  "description": "Daily risk metrics aggregated from curated GDELT events, grouped by event date, country and city. Stored in BigQuery.",
+  "storage": {
+    "type": "bigquery",
+    "project": "new-risk-monitor",
+    "dataset": "BSG_DS_NMR",
+    "table": "T_DW_BSG_GDELT_RISK_EVENTS",
+    "location": "us-east1"
+  },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "DTE_EVENT": {
+        "type": "string",
+        "format": "date",
+        "description": "Event date (BigQuery DATE). Derived from GDELT SQLDATE."
+      },
+      "NAM_COUNTRY": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 2,
+        "description": "2-letter country code (ISO-like). Derived from ActionGeo_CountryCode and uppercased."
+      },
+      "NAM_CITY": {
+        "type": ["string", "null"],
+        "description": "City extracted from ActionGeo_Fullname (first token before comma). Can be null when fullname is missing."
+      },
+      "CNT_EVENTS": {
+        "type": "integer",
+        "description": "Number of events observed for the group (DTE_EVENT, NAM_COUNTRY, NAM_CITY)."
+      },
+      "NUM_RISK_SCORE": {
+        "type": "number",
+        "description": "Risk score (0..100) computed as round((sum(risk_weight_adj)/count(events))*100,2)."
+      },
+      "NUM_GOLDSTEIN_AVG": {
+        "type": "number",
+        "description": "Average GoldsteinScale for the group. Proxy for event intensity/impact."
+      }
+    },
+    "required": ["DTE_EVENT", "NAM_COUNTRY", "CNT_EVENTS", "NUM_RISK_SCORE", "NUM_GOLDSTEIN_AVG"]
+  }
+}

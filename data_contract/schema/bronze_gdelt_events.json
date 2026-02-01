@@ -1,18 +1,13 @@
 {
   "name": "bronze_gdelt_events",
   "layer": "bronze",
-  "description": "Raw GDELT events as-delivered (CSV/TSV), plus minimal ingestion metadata.",
+  "description": "Raw GDELT events as-delivered (TSV), plus minimal ingestion metadata.",
   "format": "csv_tsv",
   "partitioning": {
     "type": "gcs_prefix",
-    "path_template": "bronze/gdelt/events/ingestion_date=YYYY-MM-DD/"
+    "path_template": "new-risk-monitor/gdelt/bronze/events/ingestion_date=YYYY-MM-DD/"
   },
-  "required_metadata": [
-    "ingestion_ts",
-    "ingestion_date",
-    "source_file",
-    "source_system"
-  ],
+  "required_metadata": ["ingestion_ts", "ingestion_date", "source_file", "source_system"],
   "schema": {
     "type": "object",
     "properties": {

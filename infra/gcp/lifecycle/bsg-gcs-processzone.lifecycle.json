@@ -1,0 +1,14 @@
+{
+  "rule": [
+    {
+      "action": { "type": "Delete" },
+      "condition": {
+        "age": 90,
+        "matchesPrefix": [
+          "new-risk-monitor/gdelt/bronze/events/",
+          "new-risk-monitor/gdelt/bronze/country_risk/"
+        ]
+      }
+    }
+  ]
+}

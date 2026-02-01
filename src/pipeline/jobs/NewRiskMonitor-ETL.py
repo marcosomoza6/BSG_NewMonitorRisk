@@ -2,49 +2,54 @@
 import argparse
 import os
 
-from datetime    import datetime, timezone
-from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql import types as T
+from google.cloud import storage
+from datetime     import datetime, timezone
+from pyspark.sql  import SparkSession
+from pyspark.sql  import functions as F
+from pyspark.sql  import types as T
 
-######################################################################################################################################
-# Script     : NewRiskMonitor-ETL.py                                                                                                 #
-# Nombre     : Marco Somoza                                                                                                          #
-# Descripción: Este Script toma un archivo de entrada para ser procesado en un pipeline de datos ETL para el proyecto final de BSG.  #
-#                                                                                                                                    #
-######################################################################################################################################
-# Datos I/O:                                                                                                                         #
-# - Input          : CSV (local o gs://bucket/path/file.csv) ----> Bronce                                                            #
-# - Output         : Parquet (local o gs://bucket/processed/...) -----> Silver                                                       #
-# - Output BigQuery: <Table_name> (requiere conector spark-bigquery) - (Aún por impmentar) ----> Gold                                #
-#                                                                                                                                    #
-######################################################################################################################################
+##########################################################################################################
+# Archivo     : NewRiskMonitor-ETL.py                                                                    #
+# Nombre      : Marco Somoza                                                                             #
+# Descripción : Este Script toma un archivo de entrada para ser procesado en un pipeline de datos ETL    #
+#               para el proyecto final de BSG.                                                           #
+#                                                                                                        #
+##########################################################################################################
+# Datos I/O:                                                                                             #
+# - Landing Input : gdelt_event_YYYYMMDD.csv            (local o landing zone bucket)                    #
+#                   gdelt_country_risk_YYYYMMDD.csv     (local o landing zone bucket)                    #
+# - Bronze Output : bsg-gdelt-events-YYYYMMDD.csv       (local o process zone bucket)                    #
+#                   bsg-gdelt-country_risk-YYYYMMDD.csv (local o process zone bucket)                    #
+# - Silver Output : part-*.parquet                      (local o process zone bucket)                    #
+# - Gold Output   : T_DW_BSG_GDELT_RISK_EVENTS          (requiere conector spark-bigquery)               #
+#                                                                                                        #
+##########################################################################################################
 def build_spark(app_name: str) -> SparkSession:
-    os.environ.setdefault("SPARK_LOCAL_HOSTNAME", "localhost") # ---------> Solo para local
+    os.environ.setdefault("SPARK_LOCAL_HOSTNAME", "localhost")
 
     return (SparkSession.builder.appName(app_name).getOrCreate())
 
 def parse_args():
     p = argparse.ArgumentParser(description = "GDELT New Risk Monitor ETL (Landing/Bronze/Silver/Gold) - Spark/Dataproc")
-    p.add_argument("--events_input"     , required = True, help = "Ruta eventos CSV/TSV (local o gs://...)")
-    p.add_argument("--reference_input"  , required = True, help = "Ruta reference CSV (local o gs://...)")
-    p.add_argument("--bronze_events_out", required = True, help = "Salida Bronze para events (gs://.../bronze/...)")
-    p.add_argument("--bronze_ref_out"   , required = True, help = "Salida Bronze para reference (gs://.../bronze/...)")
-    p.add_argument("--silver_out"       , required = True, help = "Salida Silver parquet (local o gs://...)")
-    p.add_argument("--bq_project"       , required = True, help = "GCP Project ID")                                     # BigQuery
-    p.add_argument("--bq_dataset"       , required = True, help = "BigQuery dataset (BSG_DS_NMR)")
-    p.add_argument("--bq_table"         , required = True, help = "BigQuery table name (T_DW_BSG_GDELT_RISK_EVENTS)")
-    p.add_argument("--bq_gcs_bucket"    , required = True, help = "Sección del Bucket para staging del connector de Big-Query (sin gs://)")
-    p.add_argument("--ingestion_date"   , required = True, help = "YYYY-MM-DD (para landing bronze)")                   # Particiones/metadata
+    p.add_argument("--events_input"           , required = True, help = "Ruta eventos CSV/TSV")
+    p.add_argument("--reference_input"        , required = True, help = "Ruta reference CSV")
+    p.add_argument("--bronze_events_out"      , required = True, help = "Salida Bronze para events")
+    p.add_argument("--bronze_country_risk_out", required = True, help = "Salida Bronze para country risk")
+    p.add_argument("--silver_out"             , required = True, help = "Salida Silver parquet")
+    p.add_argument("--bq_project"             , required = True, help = "GCP Project ID")
+    p.add_argument("--bq_dataset"             , required = True, help = "BigQuery dataset (BSG_DS_NMR)")
+    p.add_argument("--bq_table"               , required = True, help = "BigQuery table name (T_DW_BSG_GDELT_RISK_EVENTS)")
+    p.add_argument("--bq_gcs_bucket"          , required = True, help = "Sección del Bucket para staging del connector de Big-Query")
+    p.add_argument("--ingestion_date"         , required = True, help = "YYYY-MM-DD (para landing bronze)")
     
     p.add_argument("--app_name"   , default  = "NewRiskMonitor-ETL", help    = "Nombre del Script de Python")
-    p.add_argument("--mode_silver", default  = "overwrite"         , choices = ["overwrite", "append"])                              # Opcional: controlar modo de escritura
+    p.add_argument("--mode_silver", default  = "overwrite"         , choices = ["overwrite", "append"])
     p.add_argument("--mode_bq"    , default  = "overwrite"         , choices = ["overwrite", "append"])
 
     return p.parse_args()
 
 def main():
-    args = parse_args()
+    args  = parse_args()
     spark = build_spark(args.app_name)
 
     ingestion_ts   = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -58,11 +63,11 @@ def main():
     # Guardamos tal cual en Bronze (copiamos contenido a un folder).  -
     #                                                                 -
     # -----------------------------------------------------------------
-    df_events_raw = (spark.read.option("sep", "\t").option("header", "false").csv(args.events_input))                             # Event    : TSV sin header - Crea un DataFrame con columnas _c0.._c57 como strings (por defecto).
-    df_ref_raw    = (spark.read.option("header", "true").option("inferSchema", "true").csv(args.reference_input))              # Reference: CSV con header
+    df_events_raw = (spark.read.option("sep", "\t").option("header", "false").csv(args.events_input))
+    df_ref_raw    = (spark.read.option("header", "true").option("inferSchema", "true").csv(args.reference_input))
 
-    (df_events_raw.coalesce(1).write.mode("overwrite").option("header", "false").option("sep", "\t").csv(args.bronze_events_out)) # Event    : Escribir el raw como TSV/CSV a una sola particion
-    (df_ref_raw.coalesce(1).write.mode("overwrite").option("header", "true").csv(args.bronze_ref_out))                            # Reference: Escribir el raw como CSV a una sola particion
+    (df_events_raw.coalesce(1).write.mode("overwrite").option("header", "false").option("sep", "\t").csv(args.bronze_events_out))
+    (df_ref_raw.coalesce(1).write.mode("overwrite").option("header", "true").csv(args.bronze_country_risk_out))
 
     # -----------------------------------------------------------------
     #                             SILVER                              -
@@ -80,33 +85,29 @@ def main():
                               F.col("_c53").cast(T.DoubleType()).alias("actiongeo_lat")  ,
                               F.col("_c54").cast(T.DoubleType()).alias("actiongeo_long"))
 
-    # Derivadas + limpieza básica
-    df = (df.withColumn("country"       , F.upper(F.col("actiongeo_countrycode"))) # convertimos en upper case a todo el country code
-            .withColumn("city"          , F.when(F.col("actiongeo_fullname").isNull(), F.lit(None)).otherwise(F.trim(F.split(F.col("actiongeo_fullname"), ",").getItem(0)))) # asignamos None si asi viene, de lo contrario solo quiero el nombre de la ciudad
-            .withColumn("ingestion_date", F.lit(ingestion_date))   # Nueva column con valor constante -> date al momento de correr este programa
-            .withColumn("ingestion_ts"  , F.lit(ingestion_ts)))    # Nueva column con valor constante -> timestamp al momento de correr este programa
+    df = (df.withColumn("country"       , F.upper(F.col("actiongeo_countrycode")))
+            .withColumn("city"          , F.when(F.col("actiongeo_fullname").isNull(), F.lit(None)).otherwise(F.trim(F.split(F.col("actiongeo_fullname"), ",").getItem(0))))
+            .withColumn("ingestion_date", F.lit(ingestion_date))
+            .withColumn("ingestion_ts"  , F.lit(ingestion_ts)))
 
-    # DQ mínimo + dedup
-    df = (df.filter((F.col("event_date").isNotNull())    & # No seleccionar records con nulos en event_date
-                    (F.col("globaleventid").isNotNull()) & # No seleccionar records con nulos en globaleventid
-                    (F.col("country").isNotNull())       & # No seleccionar records con nulos en country
-                    (F.length(F.col("country")) == 2)).dropDuplicates(["globaleventid"])) # No seleccionar records con country (code) length diferente a 2
+    df = (df.filter((F.col("event_date").isNotNull())    &
+                    (F.col("globaleventid").isNotNull()) &
+                    (F.col("country").isNotNull())       &
+                    (F.length(F.col("country")) == 2)).dropDuplicates(["globaleventid"]))
 
-    # Risk base por quadclass
-    df = df.withColumn("risk_weight", F.when(F.col("quadclass") == 1, F.lit(0.25)) # Nueva columna "risk_weight" con el valor correspondiente al valor del quadclass: 1 -> 0.25
-                                       .when(F.col("quadclass") == 2, F.lit(0.50)) # Nueva columna "risk_weight" con el valor correspondiente al valor del quadclass: 2 -> 0.50
-                                       .when(F.col("quadclass") == 3, F.lit(0.75)) # Nueva columna "risk_weight" con el valor correspondiente al valor del quadclass: 3 -> 0.75
-                                       .when(F.col("quadclass") == 4, F.lit(1.00)).otherwise(F.lit(0.50))) # Nueva columna "risk_weight" con el valor correspondiente al valor del quadclass: 4 -> 1.00 .. de lo contrario 0.50 por default
+    df = df.withColumn("risk_weight", F.when(F.col("quadclass") == 1, F.lit(0.25))
+                                       .when(F.col("quadclass") == 2, F.lit(0.50))
+                                       .when(F.col("quadclass") == 3, F.lit(0.75))
+                                       .when(F.col("quadclass") == 4, F.lit(1.00)).otherwise(F.lit(0.50)))
 
-    # Reference esperado: country, baseline_risk, risk_multiplier, updated_at
     df_ref = (df_ref_raw.select(F.upper(F.col("country")).alias("country")                                    , 
                                         F.col("baseline_risk").cast(T.DoubleType()).alias("baseline_risk")    ,                                    
                                         F.col("risk_multiplier").cast(T.DoubleType()).alias("risk_multiplier"),
                                         F.col("updated_at").cast(T.StringType()).alias("updated_at")).dropDuplicates(["country"]))
 
-    df = (df.join(df_ref, on = "country", how = "left").withColumn("risk_weight_adj", F.col("risk_weight") * F.coalesce(F.col("risk_multiplier"), F.lit(1.0)))) # Join entre events y country risk para multiplicar el risk_weight * risk_multiplier
+    df = (df.join(df_ref, on = "country", how = "left").withColumn("risk_weight_adj", F.col("risk_weight") * F.coalesce(F.col("risk_multiplier"), F.lit(1.0))))
 
-    (df.write.mode(args.mode_silver).partitionBy("event_date").parquet(args.silver_out)) # Escribir Silver Parquet particionado por event_date
+    (df.write.mode(args.mode_silver).partitionBy("event_date").parquet(args.silver_out))
 
     # -----------------------------------------------------------------
     #                             GOLD                                -
@@ -127,7 +128,7 @@ def main():
 
     full_table = f"{args.bq_project}:{args.bq_dataset}.{args.bq_table}"
     
-    (mart_bq.write.format("bigquery").option("table", full_table)
+    (mart_bq.write.format("bigquery").option("table"             , full_table)
                                      .option("temporaryGcsBucket", args.bq_gcs_bucket).mode(args.mode_bq).save())
 
     print("Silver out    :", args.silver_out)
