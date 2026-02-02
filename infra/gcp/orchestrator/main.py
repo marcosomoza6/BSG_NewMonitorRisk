@@ -127,11 +127,19 @@ def ingest():
     
     try:
         print(f"[OK] creating dataproc batch: {batch_id}", flush=True)
-        dp_client.create_batch(parent=parent, batch=batch, batch_id=batch_id)
+        op = dp_client.create_batch(parent=parent, batch=batch, batch_id=batch_id)
+        print(f"[OK] create_batch operation: {op.operation.name}", flush=True)
         print(f"[OK] batch submitted: {batch_id}", flush=True)
+
         return (f"OK: launched batch_id={batch_id} for {events_file}, ref_date={ref_date}", 200)
 
     except Exception as e:
         print("[ERROR] create_batch failed:", repr(e), flush=True)
         print(traceback.format_exc(), flush=True)
-        return ("ERROR launching batch", 500)
+        
+        return ("ERROR launching batch (logged)", 200)
+    
+        # print("[ERROR] create_batch failed:", repr(e), flush=True)
+        # print(traceback.format_exc(), flush=True)
+
+        # return ("ERROR launching batch", 500)
