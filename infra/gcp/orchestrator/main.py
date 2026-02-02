@@ -70,10 +70,6 @@ def ingest():
     bucket_name = event.get("bucket")
     obj_name    = event.get("name")
 
-    event = request.get_json(force=True)
-    bucket_name = event.get("bucket")
-    obj_name = event.get("name")
-
     print(f"[EVENT] bucket={bucket_name} name={obj_name}", flush=True)
 
     if bucket_name != BUCKET_LANDING:

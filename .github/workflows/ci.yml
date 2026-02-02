@@ -19,15 +19,80 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install dependencies (pipeline + orchestrator)
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+          if [ -f src/pipeline/requirements.txt ]; then pip install -r src/pipeline/requirements.txt; fi
+          if [ -f infra/gcp/orchestrator/requirements.txt ]; then pip install -r infra/gcp/orchestrator/requirements.txt; fi
 
       - name: Validate imports / compilation
         run: |
           python -m compileall src
+          python -m compileall infra/gcp/orchestrator
 
       - name: Run tests
         run: |
-          if [ -d tests ]; then pytest -q || true; else echo "No tests directory"; fi
+          if [ -d tests ]; then pytest -q; else echo "No tests directory"; fi
+
+  deploy_orchestrator:
+    needs: ci
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect changes (orchestrator)
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            orchestrator:
+              - 'infra/gcp/orchestrator/**'
+              - 'Procfile'
+
+      - name: Stop if no orchestrator changes
+        if: steps.changes.outputs.orchestrator != 'true'
+        run: |
+          echo "No orchestrator-related changes detected. Skipping deploy."
+
+      - name: Auth to Google Cloud
+        if: steps.changes.outputs.orchestrator == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        if: steps.changes.outputs.orchestrator == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy Cloud Run (orchestrator only)
+        if: steps.changes.outputs.orchestrator == 'true'
+        run: |
+          gcloud run deploy "bsg-cr-newriskmonitor-etl-function" \
+            --source "infra/gcp/orchestrator" \
+            --project "new-risk-monitor" \
+            --region "us-east1" \
+            --service-account "bsg-sa-newriskmonitor@new-risk-monitor.iam.gserviceaccount.com" \
+            --allow-unauthenticated \
+            --set-env-vars \
+              GCP_PROJECT_ID="new-risk-monitor",\
+              GCP_REGION="us-east1",\
+              SERVICE_ACCOUNT_EMAIL="bsg-sa-newriskmonitor@new-risk-monitor.iam.gserviceaccount.com",\
+              GCS_BUCKET_LANDING="bsg-gcs-landingzone",\
+              GCS_BUCKET_PROCESS="bsg-gcs-processzone",\
+              GCS_BUCKET_DATABASE="bsg-gcs-databasezone",\
+              GCS_ROOT_PREFIX="new-risk-monitor/gdelt",\
+              LANDING_EVENTS_PREFIX="new-risk-monitor/gdelt/landing/events",\
+              LANDING_REF_PREFIX="new-risk-monitor/gdelt/reference/country_risk",\
+              BRONZE_EVENTS_PREFIX="new-risk-monitor/gdelt/bronze/events",\
+              BRONZE_COUNTRY_RISK_PREFIX="new-risk-monitor/gdelt/bronze/country_risk",\
+              SILVER_EVENTS_PREFIX="new-risk-monitor/gdelt/silver/events",\
+              PYSPARK_URI="gs://bsg-gcs-processzone/new-risk-monitor/gdelt/src/pipeline/jobs/NewRiskMonitor-ETL.py",\
+              BQ_DATASET="BSG_DS_NMR",\
+              BQ_TABLE_GOLD="T_DW_BSG_GDELT_RISK_EVENTS",\
+              BQ_STAGING_PREFIX="new-risk-monitor/gdelt/big-query/staging"
