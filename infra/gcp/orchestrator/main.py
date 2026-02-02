@@ -1,11 +1,13 @@
 import os
 import re
-import subprocess
-from flask        import Flask, request
-from google.cloud import storage
+import uuid
+import traceback
+from   flask        import Flask, request
+from   google.cloud import storage
+from   google.cloud import dataproc_v1
 
 ##########################################################################################################
-# Archivo     : main.py                                                                              #
+# Archivo     : main.py                                                                                  #
 # Nombre      : Marco Somoza                                                                             #
 # Descripción : Orquestador (Cloud Run). Se activa por Eventarc (GCS finalized) en bucket Landing,       #
 #               filtra solo events, encuentra reference más reciente y lanza Dataproc Serverless batch.  #
@@ -75,50 +77,61 @@ def ingest():
     if bucket_name != BUCKET_LANDING:
         print("[IGNORED] not landing bucket", flush=True)
         return ("Ignored: not landing bucket", 200)
-        
+    
     if not obj_name:
         print("[ERROR] missing name", flush=True)
         return ("Missing name", 400)
-        
+    
     if obj_name.endswith("/"):
         print("[IGNORED] folder placeholder", flush=True)
         return ("Ignored: folder placeholder", 200)
-        
+    
     ingestion_date, events_file = _extract_ingestion_date_and_file(obj_name)
+    
     if not ingestion_date:
         print("[IGNORED] not events ingestion_date path", flush=True)
         return ("Ignored: not events ingestion_date path", 200)
-        
+    
     if not (events_file.endswith(".csv") or events_file.endswith(".tsv")):
         print("[IGNORED] not csv/tsv", flush=True)
         return ("Ignored: not csv/tsv", 200)
-        
+    
     print(f"[OK] triggering batch ingestion_date={ingestion_date} file={events_file}", flush=True)
     
-    client = storage.Client()
-    ref_uri, ref_file, ref_date = _latest_reference_uri(client)
+    gcs_client = storage.Client()
+    ref_uri, ref_file, ref_date = _latest_reference_uri(gcs_client)
     
     events_uri              = f"gs://{BUCKET_LANDING}/{obj_name}"
     bronze_events_out       = f"gs://{BUCKET_PROCESS}/{BRONZE_EVENTS_PREFIX}/ingestion_date={ingestion_date}/"
     bronze_country_risk_out = f"gs://{BUCKET_PROCESS}/{BRONZE_COUNTRY_RISK_PREFIX}/ingestion_date={ingestion_date}/"
     silver_out              = f"gs://{BUCKET_PROCESS}/{SILVER_EVENTS_PREFIX}/"
+
+    print(f"[OK] reference={ref_file} ref_date={ref_date}", flush=True)
+
+    dp_client = dataproc_v1.BatchControllerClient(client_options={"api_endpoint": f"{REGION}-dataproc.googleapis.com:443"})
+    parent    = f"projects/{PROJECT_ID}/locations/{REGION}"
+    batch_id  = f"gdelt-{ingestion_date.replace('-', '')}-{uuid.uuid4().hex[:8]}"
+    batch     = dataproc_v1.Batch(pyspark_batch = dataproc_v1.PySparkBatch(
+                                 main_python_file_uri = PYSPARK_URI,
+                                 args=["--events_input"           , events_uri,
+                                       "--reference_input"        , ref_uri,
+                                       "--bronze_events_out"      , bronze_events_out,
+                                       "--bronze_country_risk_out", bronze_country_risk_out,
+                                       "--silver_out"             , silver_out,
+                                       "--bq_project"             , PROJECT_ID,
+                                       "--bq_dataset"             , BQ_DATASET,
+                                       "--bq_table"               , BQ_TABLE,
+                                       "--bq_gcs_bucket"          , BUCKET_DATABASE,
+                                       "--ingestion_date"         , ingestion_date,],),
+                                 environment_config=dataproc_v1.EnvironmentConfig(execution_config=dataproc_v1.ExecutionConfig(service_account=SERVICE_ACCOUNT)))
     
-    cmd = ["gcloud", "dataproc", "batches", "submit", "pyspark", PYSPARK_URI,
-           "--project"                , PROJECT_ID             ,
-           "--region"                 , REGION                 ,
-           "--service-account"        , SERVICE_ACCOUNT        ,
-           "--"                       ,
-           "--events_input"           , events_uri             ,
-           "--reference_input"        , ref_uri                ,
-           "--bronze_events_out"      , bronze_events_out      ,
-           "--bronze_country_risk_out", bronze_country_risk_out,
-           "--silver_out"             , silver_out             ,
-           "--bq_project"             , PROJECT_ID             ,
-           "--bq_dataset"             , BQ_DATASET             ,
-           "--bq_table"               , BQ_TABLE               ,
-           "--bq_gcs_bucket"          , BUCKET_DATABASE        ,
-           "--ingestion_date"         , ingestion_date]
-    
-    subprocess.check_call(cmd)
-    
-    return (f"OK: launched batch for {events_file}, ref_date={ref_date}", 200)
+    try:
+        print(f"[OK] creating dataproc batch: {batch_id}", flush=True)
+        dp_client.create_batch(parent=parent, batch=batch, batch_id=batch_id)
+        print(f"[OK] batch submitted: {batch_id}", flush=True)
+        return (f"OK: launched batch_id={batch_id} for {events_file}, ref_date={ref_date}", 200)
+
+    except Exception as e:
+        print("[ERROR] create_batch failed:", repr(e), flush=True)
+        print(traceback.format_exc(), flush=True)
+        return ("ERROR launching batch", 500)
