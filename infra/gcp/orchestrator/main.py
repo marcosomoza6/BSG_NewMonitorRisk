@@ -4,7 +4,7 @@ import uuid
 import traceback
 from   flask        import Flask, request
 from   google.cloud import storage
-from   google.cloud import dataproc_v1
+from   google.cloud import dataproc_v1 as dataproc
 
 ##########################################################################################################
 # Archivo     : main.py                                                                                  #
@@ -108,10 +108,10 @@ def ingest():
 
     print(f"[OK] reference={ref_file} ref_date={ref_date}", flush=True)
 
-    dp_client = dataproc_v1.BatchControllerClient(client_options={"api_endpoint": f"{REGION}-dataproc.googleapis.com:443"})
+    dp_client = dataproc.BatchControllerClient(client_options={"api_endpoint": f"{REGION}-dataproc.googleapis.com:443"})
     parent    = f"projects/{PROJECT_ID}/locations/{REGION}"
     batch_id  = f"gdelt-{ingestion_date.replace('-', '')}-{uuid.uuid4().hex[:8]}"
-    batch     = dataproc_v1.Batch(pyspark_batch = dataproc_v1.PySparkBatch(
+    batch     = dataproc.Batch(pyspark_batch = dataproc.PySparkBatch(
                                  main_python_file_uri = PYSPARK_URI,
                                  args=["--events_input"           , events_uri,
                                        "--reference_input"        , ref_uri,
@@ -123,7 +123,7 @@ def ingest():
                                        "--bq_table"               , BQ_TABLE,
                                        "--bq_gcs_bucket"          , BUCKET_DATABASE,
                                        "--ingestion_date"         , ingestion_date,],),
-                                 environment_config=dataproc_v1.EnvironmentConfig(execution_config=dataproc_v1.ExecutionConfig(service_account=SERVICE_ACCOUNT)))
+                                 environment_config=dataproc.EnvironmentConfig(execution_config=dataproc.ExecutionConfig(service_account=SERVICE_ACCOUNT)))
     
     try:
         print(f"[OK] creating dataproc batch: {batch_id}", flush=True)

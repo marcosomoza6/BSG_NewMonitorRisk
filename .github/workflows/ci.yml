@@ -84,4 +84,5 @@ jobs:
             --region "us-east1" \
             --service-account "bsg-sa-newriskmonitor@new-risk-monitor.iam.gserviceaccount.com" \
             --allow-unauthenticated \
-            --set-env-vars "$ENV_VARS"
+            --set-env-vars "$ENV_VARS" \
+            --set-build-env-vars "GOOGLE_RUNTIME_VERSION=3.12.3"
