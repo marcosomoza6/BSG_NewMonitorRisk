@@ -83,6 +83,6 @@ jobs:
             --project "new-risk-monitor" \
             --region "us-east1" \
             --service-account "bsg-sa-newriskmonitor@new-risk-monitor.iam.gserviceaccount.com" \
-            --build-service-account "340841173385@cloudbuild.gserviceaccount.com" \
+            --build-service-account "projects/new-risk-monitor/serviceAccounts/340841173385@cloudbuild.gserviceaccount.com" \
             --allow-unauthenticated \
             --set-env-vars "$ENV_VARS"
