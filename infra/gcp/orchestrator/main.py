@@ -70,22 +70,34 @@ def ingest():
     bucket_name = event.get("bucket")
     obj_name    = event.get("name")
 
+    event = request.get_json(force=True)
+    bucket_name = event.get("bucket")
+    obj_name = event.get("name")
+
+    print(f"[EVENT] bucket={bucket_name} name={obj_name}", flush=True)
+
     if bucket_name != BUCKET_LANDING:
-        return ("Ignored: not landing bucket", 200)                          # Validación básica
+        print("[IGNORED] not landing bucket", flush=True)
+        return ("Ignored: not landing bucket", 200)
 
     if not obj_name:
+        print("[ERROR] missing name", flush=True)
         return ("Missing name", 400)
 
-    if obj_name.endswith("/"):                                               # Ignora "folders" (placeholders) si existieran
+    if obj_name.endswith("/"):
+        print("[IGNORED] folder placeholder", flush=True)
         return ("Ignored: folder placeholder", 200)
 
-    ingestion_date, events_file = _extract_ingestion_date_and_file(obj_name) # Solo procesa events de landing
-
+    ingestion_date, events_file = _extract_ingestion_date_and_file(obj_name)
     if not ingestion_date:
+        print("[IGNORED] not events ingestion_date path", flush=True)
         return ("Ignored: not events ingestion_date path", 200)
 
-    if not (events_file.endswith(".csv") or events_file.endswith(".tsv")):   # Filtrar por extensiones
+    if not (events_file.endswith(".csv") or events_file.endswith(".tsv")):
+        print("[IGNORED] not csv/tsv", flush=True)
         return ("Ignored: not csv/tsv", 200)
+
+    print(f"[OK] triggering batch ingestion_date={ingestion_date} file={events_file}", flush=True)
 
     client = storage.Client()
     ref_uri, ref_file, ref_date = _latest_reference_uri(client)
