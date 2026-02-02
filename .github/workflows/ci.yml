@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install dependencies (pipeline + orchestrator)
         run: |
@@ -55,7 +55,6 @@ jobs:
           filters: |
             orchestrator:
               - 'infra/gcp/orchestrator/**'
-              - 'Procfile'
 
       - name: Stop if no orchestrator changes
         if: steps.changes.outputs.orchestrator != 'true'
@@ -84,5 +83,5 @@ jobs:
             --region "us-east1" \
             --service-account "bsg-sa-newriskmonitor@new-risk-monitor.iam.gserviceaccount.com" \
             --allow-unauthenticated \
+            --set-build-env-vars "GOOGLE_RUNTIME_VERSION=3.12.3" \
             --set-env-vars "$ENV_VARS" \
-            --set-build-env-vars "GOOGLE_RUNTIME_VERSION=3.12.3"
