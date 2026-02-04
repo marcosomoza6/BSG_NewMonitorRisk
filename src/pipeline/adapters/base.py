@@ -22,3 +22,7 @@ class CloudAdapter:
 
     def bq_staging_path(self) -> str:
         raise NotImplementedError
+
+    def gold_events_path(self) -> str:
+        raise NotImplementedError
+    

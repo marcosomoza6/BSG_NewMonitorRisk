@@ -113,16 +113,19 @@ def ingest():
     batch_id  = f"gdelt-{ingestion_date.replace('-', '')}-{uuid.uuid4().hex[:8]}"
     batch     = dataproc.Batch(pyspark_batch = dataproc.PySparkBatch(
                                  main_python_file_uri = PYSPARK_URI,
-                                 args=["--events_input"           , events_uri,
-                                       "--reference_input"        , ref_uri,
-                                       "--bronze_events_out"      , bronze_events_out,
+                                 args=["--events_input"           , events_uri             ,
+                                       "--reference_input"        , ref_uri                ,
+                                       "--bronze_events_out"      , bronze_events_out      ,
                                        "--bronze_country_risk_out", bronze_country_risk_out,
-                                       "--silver_out"             , silver_out,
-                                       "--bq_project"             , PROJECT_ID,
-                                       "--bq_dataset"             , BQ_DATASET,
-                                       "--bq_table"               , BQ_TABLE,
-                                       "--bq_gcs_bucket"          , BUCKET_DATABASE,
-                                       "--ingestion_date"         , ingestion_date,],),
+                                       "--silver_out"             , silver_out             ,
+                                       "--bq_project"             , PROJECT_ID             ,
+                                       "--bq_dataset"             , BQ_DATASET             ,
+                                       "--bq_table"               , BQ_TABLE               ,
+                                       "--bq_gcs_bucket"          , BUCKET_DATABASE        ,
+                                       "--ingestion_date"         , ingestion_date         ,
+                                       "--mode_silver"            , "overwrite"            ,
+                                       "--mode_bq"                , "append"               ,
+                                       "--app_name"               , "NewRiskMonitor-ETL"]),
                                  environment_config=dataproc.EnvironmentConfig(execution_config=dataproc.ExecutionConfig(service_account=SERVICE_ACCOUNT)))
     
     try:
@@ -138,8 +141,3 @@ def ingest():
         print(traceback.format_exc(), flush=True)
         
         return ("ERROR launching batch (logged)", 200)
-    
-        # print("[ERROR] create_batch failed:", repr(e), flush=True)
-        # print(traceback.format_exc(), flush=True)
-
-        # return ("ERROR launching batch", 500)

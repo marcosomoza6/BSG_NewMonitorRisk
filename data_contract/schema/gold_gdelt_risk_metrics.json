@@ -38,6 +38,11 @@
       "NUM_GOLDSTEIN_AVG": {
         "type": "number",
         "description": "Average GoldsteinScale for the group. Proxy for event intensity/impact."
+      },
+      "DTE_INGESTION": {
+        "type": "string",
+        "format": "date",
+        "description": "Fecha de ingesta (BigQuery DATE). Fecha en la que el pipeline procesó y cargó las métricas agregadas en la tabla Gold. Se utiliza para la auditabilidad y los reabastecimientos incrementales."
       }
     },
     "required": ["DTE_EVENT", "NAM_COUNTRY", "CNT_EVENTS", "NUM_RISK_SCORE", "NUM_GOLDSTEIN_AVG"]
