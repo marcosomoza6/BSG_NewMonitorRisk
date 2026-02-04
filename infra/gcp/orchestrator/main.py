@@ -127,7 +127,7 @@ def ingest():
                                        "--mode_bq"                , "append"               ,
                                        "--app_name"               , "NewRiskMonitor-ETL"]),
                                  environment_config=dataproc.EnvironmentConfig(execution_config=dataproc.ExecutionConfig(service_account=SERVICE_ACCOUNT)))
-    
+                                
     try:
         print(f"[OK] creating dataproc batch: {batch_id}", flush=True)
         op = dp_client.create_batch(parent=parent, batch=batch, batch_id=batch_id)
