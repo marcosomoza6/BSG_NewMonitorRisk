@@ -143,8 +143,8 @@ Autenticación vía Workload Identity en CI/CD.
     --ingestion_date 2026-01-24 `
     --events_file gdelt_event_20260124.csv `
     --reference_file gdelt_country_risk_20260124.csv `
-    --mode_silver overwrite ` <-------------------------------------------------------------- checa esto
-    --mode_bq overwrite       <----------------------------------------------------------- checa esto
+    --mode_silver overwrite `
+    --mode_bq overwrite
 
 ### 4.2 Procesamiento de archivos
 -----------------------
@@ -159,11 +159,11 @@ Events (TSV con extensión .csv sin header):
 -----------------------
 - Archivos de salida:
 -----------------------
-- Bronze Event (CSV con header) <----------------------------------------------------------- checa esto
-  data/output/bronze/events/ingestion_date=YYYY-MM-DD/gdelt_events_YYYYMMDD.csv <----------------------------------------------------------- checa esto
+- Bronze Event (CSV sin header)
+  data/output/bronze/events/ingestion_date=YYYY-MM-DD/part-*.csv
 
 - Bronze Country Risk (CSV con header)
-  data/output/bronze/country_risk/ingestion_date=YYYY-MM-DD/gdelt_country_risk_YYYYMMDD.csv <----------------------------------------------------------- checa esto
+  data/output/bronze/country_risk/ingestion_date=YYYY-MM-DD/part-*.csv
 
 - Silver Events Risk (Parquet)
   data/output/silver/events/ingestion_date=YYYY-MM-DD/part-*.parquet

@@ -1,2 +1,5 @@
 .env
 **/.env
+data/output/bronze/*
+data/output/silver/*
+data/output/gold/*
