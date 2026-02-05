@@ -4,23 +4,6 @@
 # Descripción : Guía operativa para el despliegue del orquestador en Cloud Run y la creación del trigger #
 #               Eventarc basado en Cloud Storage (object finalized).                                     #
 #                                                                                                        #
-#               Este documento describe:                                                                 #
-#               - El servicio Cloud Run que actúa como orquestador del pipeline.                         #
-#               - El trigger Eventarc que escucha eventos de subida de archivos en el bucket Landing.    #
-#               - Las variables de entorno requeridas por el servicio.                                   #
-#               - Las rutas oficiales de entrada (Landing) y salida (Bronze/Silver/BigQuery staging).    #
-#                                                                                                        #
-#               El orquestador se activa únicamente cuando se suben archivos de eventos GDELT bajo el    #
-#               prefijo: new-risk-monitor/gdelt/landing/events/                                          #
-#                                                                                                        #
-#               Al activarse:                                                                            #
-#               - Extrae la ingestion_date desde la ruta del archivo.                                    #
-#               - Localiza el archivo de referencia (country risk) más reciente.                         #
-#               - Lanza un batch de Dataproc Serverless (Spark) con los parámetros correctos.            #
-#                                                                                                        #
-#               Este enfoque desacopla el disparo (event-driven) del procesamiento pesado (Spark),       #
-#               asegurando escalabilidad, control de costos y trazabilidad.                              #
-#                                                                                                        #
 ##########################################################################################################
 ## Recursos
 - Cloud Run service: bsg-cr-newriskmonitor-etl-function
@@ -31,7 +14,7 @@
 - Region: us-east1
 - Service Account: bsg-sa-newriskmonitor@new-risk-monitor.iam.gserviceaccount.com
 
-## Rutas
+## Rutas (GCS)
 ### Landing (inputs)
 - Events:
   gs://bsg-gcs-landingzone/new-risk-monitor/gdelt/landing/events/ingestion_date=YYYY-MM-DD/gdelt_event_YYYYMMDD.csv
@@ -74,6 +57,18 @@ PYSPARK_URI=gs://bsg-gcs-processzone/new-risk-monitor/gdelt/src/pipeline/jobs/Ne
 
 BQ_DATASET=BSG_DS_NMR
 BQ_TABLE_GOLD=T_DW_BSG_GDELT_RISK_EVENTS
+
+## Deploy Manual
+ENV_VARS="GCP_PROJECT_ID=new-risk-monitor,GCP_REGION=us-east1,SERVICE_ACCOUNT_EMAIL=bsg-sa-newriskmonitor@new-risk-monitor.iam.gserviceaccount.com,GCS_BUCKET_LANDING=bsg-gcs-landingzone,GCS_BUCKET_PROCESS=bsg-gcs-processzone,GCS_BUCKET_DATABASE=bsg-gcs-databasezone,GCS_ROOT_PREFIX=new-risk-monitor/gdelt,LANDING_EVENTS_PREFIX=new-risk-monitor/gdelt/landing/events,LANDING_REF_PREFIX=new-risk-monitor/gdelt/reference/country_risk,BRONZE_EVENTS_PREFIX=new-risk-monitor/gdelt/bronze/events,BRONZE_COUNTRY_RISK_PREFIX=new-risk-monitor/gdelt/bronze/country_risk,SILVER_EVENTS_PREFIX=new-risk-monitor/gdelt/silver/events,PYSPARK_URI=gs://bsg-gcs-processzone/new-risk-monitor/gdelt/src/pipeline/jobs/NewRiskMonitor-ETL.py,BQ_DATASET=BSG_DS_NMR,BQ_TABLE_GOLD=T_DW_BSG_GDELT_RISK_EVENTS,BQ_STAGING_PREFIX=new-risk-monitor/gdelt/big-query/staging"
+
+gcloud run deploy "bsg-cr-newriskmonitor-etl-function" \\
+  --source "infra/gcp/orchestrator" \\
+  --project "new-risk-monitor" \\
+  --region "us-east1" \\
+  --service-account "bsg-sa-newriskmonitor@new-risk-monitor.iam.gserviceaccount.com" \\
+  --allow-unauthenticated \\
+  --set-build-env-vars "GOOGLE_RUNTIME_VERSION=3.12.3" \\
+  --set-env-vars "$ENV_VARS"
 
 ## Crear Trigger (Eventarc)
 Crear un trigger de Cloud Storage (Object Finalized) en el bucket landing:

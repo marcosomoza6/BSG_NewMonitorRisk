@@ -21,11 +21,11 @@ SERVICE_ACCOUNT            = os.environ["SERVICE_ACCOUNT_EMAIL"]
 BUCKET_LANDING             = os.environ["GCS_BUCKET_LANDING"]
 BUCKET_PROCESS             = os.environ["GCS_BUCKET_PROCESS"]
 BUCKET_DATABASE            = os.environ["GCS_BUCKET_DATABASE"]
-LANDING_EVENTS_PREFIX      = os.environ["LANDING_EVENTS_PREFIX"]      # new-risk-monitor/gdelt/landing/events
-LANDING_REF_PREFIX         = os.environ["LANDING_REF_PREFIX"]         # new-risk-monitor/gdelt/reference/country_risk
-BRONZE_EVENTS_PREFIX       = os.environ["BRONZE_EVENTS_PREFIX"]       # new-risk-monitor/gdelt/bronze/events
-BRONZE_COUNTRY_RISK_PREFIX = os.environ["BRONZE_COUNTRY_RISK_PREFIX"] # new-risk-monitor/gdelt/bronze/country_risk
-SILVER_EVENTS_PREFIX       = os.environ["SILVER_EVENTS_PREFIX"]       # new-risk-monitor/gdelt/silver/events
+LANDING_EVENTS_PREFIX      = os.environ["LANDING_EVENTS_PREFIX"]
+LANDING_REF_PREFIX         = os.environ["LANDING_REF_PREFIX"]
+BRONZE_EVENTS_PREFIX       = os.environ["BRONZE_EVENTS_PREFIX"]
+BRONZE_COUNTRY_RISK_PREFIX = os.environ["BRONZE_COUNTRY_RISK_PREFIX"]
+SILVER_EVENTS_PREFIX       = os.environ["SILVER_EVENTS_PREFIX"]
 PYSPARK_URI                = os.environ["PYSPARK_URI"]
 BQ_DATASET                 = os.environ["BQ_DATASET"]
 BQ_TABLE                   = os.environ["BQ_TABLE_GOLD"]
@@ -96,7 +96,7 @@ def ingest():
         print("[IGNORED] not csv/tsv", flush=True)
         return ("Ignored: not csv/tsv", 200)
     
-    print(f"[OK] triggering batch ingestion_date={ingestion_date} file={events_file}", flush=True)
+    print(f"OK triggering batch ingestion_date={ingestion_date} file={events_file}", flush=True)
     
     gcs_client = storage.Client()
     ref_uri, ref_file, ref_date = _latest_reference_uri(gcs_client)
@@ -106,7 +106,7 @@ def ingest():
     bronze_country_risk_out = f"gs://{BUCKET_PROCESS}/{BRONZE_COUNTRY_RISK_PREFIX}/ingestion_date={ingestion_date}/"
     silver_out              = f"gs://{BUCKET_PROCESS}/{SILVER_EVENTS_PREFIX}/"
 
-    print(f"[OK] reference={ref_file} ref_date={ref_date}", flush=True)
+    print(f"OK reference={ref_file} ref_date={ref_date}", flush=True)
 
     dp_client = dataproc.BatchControllerClient(client_options={"api_endpoint": f"{REGION}-dataproc.googleapis.com:443"})
     parent    = f"projects/{PROJECT_ID}/locations/{REGION}"
@@ -129,15 +129,15 @@ def ingest():
                                  environment_config=dataproc.EnvironmentConfig(execution_config=dataproc.ExecutionConfig(service_account=SERVICE_ACCOUNT)))
                                 
     try:
-        print(f"[OK] creating dataproc batch: {batch_id}", flush=True)
+        print(f"OK creating dataproc batch: {batch_id}", flush=True)
         op = dp_client.create_batch(parent=parent, batch=batch, batch_id=batch_id)
-        print(f"[OK] create_batch operation: {op.operation.name}", flush=True)
-        print(f"[OK] batch submitted: {batch_id}", flush=True)
+        print(f"OK create_batch operation: {op.operation.name}", flush=True)
+        print(f"OK batch submitted: {batch_id}", flush=True)
 
         return (f"OK: launched batch_id={batch_id} for {events_file}, ref_date={ref_date}", 200)
 
     except Exception as e:
-        print("[ERROR] create_batch failed:", repr(e), flush=True)
+        print("ERROR create_batch failed:", repr(e), flush=True)
         print(traceback.format_exc(), flush=True)
         
         return ("ERROR launching batch (logged)", 200)

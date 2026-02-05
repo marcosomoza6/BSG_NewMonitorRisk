@@ -124,6 +124,7 @@ class BronzeLayer:
         df_events_raw = self.io.read_events_raw(events_input)
         df_ref_raw    = self.io.read_reference_raw(reference_input)
         
+        # Escribimos en el bucket o folder de bronze
         self.io.write_bronze_events(df_events_raw, bronze_events_out)
         self.io.write_bronze_reference(df_ref_raw, bronze_ref_out)
         
@@ -146,26 +147,31 @@ class SilverLayer:
                                             F.col("_c53").cast(T.DoubleType()).alias("actiongeo_lat" ) ,
                                             F.col("_c54").cast(T.DoubleType()).alias("actiongeo_long"))
         
+        # Derivadas + limpieza básica
         df = (df.withColumn("country", F.upper(F.col("actiongeo_countrycode")))
                 .withColumn("city", F.when(F.col("actiongeo_fullname").isNull(), F.lit(None)).otherwise(F.trim(F.split(F.col("actiongeo_fullname"), ",").getItem(0))))
                 .withColumn("ingestion_date", F.lit(ingestion_date))
                 .withColumn("ingestion_ts", F.lit(ingestion_ts)))
         
+        # DQ mínimo + dedup
         df = (df.filter((F.col("event_date"   ).isNotNull()) &
                         (F.col("globaleventid").isNotNull()) &
                         (F.col("country"      ).isNotNull()) &
                         (F.length(F.col("country")) == 2)).dropDuplicates(["globaleventid"]))
         
+        # Risk base por quadclass
         df = df.withColumn("risk_weight", F.when(F.col("quadclass") == 1, F.lit(0.25))
                                            .when(F.col("quadclass") == 2, F.lit(0.50))
                                            .when(F.col("quadclass") == 3, F.lit(0.75))
                                            .when(F.col("quadclass") == 4, F.lit(1.00)).otherwise(F.lit(0.50)))
         
+        # Reference esperado: country, baseline_risk, risk_multiplier, updated_at
         df_ref = (df_ref_raw.select(F.upper(F.col("country")).alias("country")                                    ,
                                             F.col("baseline_risk").cast(T.DoubleType()).alias("baseline_risk")    ,
                                             F.col("risk_multiplier").cast(T.DoubleType()).alias("risk_multiplier"),
                                             F.col("updated_at").cast(T.StringType()).alias("updated_at")).dropDuplicates(["country"]))
         
+        # Escribir Silver Parquet particionado por event_date
         df = (df.join(df_ref, on="country", how="left").withColumn("risk_weight_adj",F.col("risk_weight") * F.coalesce(F.col("risk_multiplier"), F.lit(1.0))))
         
         self.io.write_silver(df, silver_out, mode_silver)
@@ -177,12 +183,14 @@ class GoldLayer:
         self.io = io
         
     def build_mart(self, df, ingestion_date: str):
+        # Hacer calculos con aggregations
         mart = (df.groupBy("event_date", "country", "city").agg(F.count("*").alias("events_count")              , 
                                                                 F.sum("risk_weight_adj").alias("risk_score_raw"),
                                                                 F.avg("goldstein_scale").alias("avg_goldstein")).withColumn("risk_score", F.round((F.col("risk_score_raw") / F.col("events_count")) * 100, 2)).drop("risk_score_raw"))
-        
+        # Agregar columna de ingestion date
         mart = mart.withColumn("ingestion_date", F.to_date(F.lit(ingestion_date)))
 
+        # Definir estructura final del mart
         mart_bq = (mart.withColumnRenamed("event_date"    , "DTE_EVENT"        )
                        .withColumnRenamed("country"       , "NAM_COUNTRY"      )
                        .withColumnRenamed("city"          , "NAM_CITY"         )
@@ -253,8 +261,8 @@ class NewRiskMonitorPipeline:
         self.gold   = GoldLayer(io)
         
     def run(self, cfg: ETLConfig):
-        df_events_raw, df_ref_raw = self.bronze.run(cfg.events_input, cfg.reference_input, cfg.bronze_events_out, cfg.bronze_country_risk_out)           # BRONZE
-        df_silver                 = self.silver.run(df_events_raw, df_ref_raw, cfg.silver_out, cfg.mode_silver, cfg.ingestion_date)                      # SILVER
+        df_events_raw, df_ref_raw = self.bronze.run(cfg.events_input, cfg.reference_input, cfg.bronze_events_out, cfg.bronze_country_risk_out)                               # BRONZE
+        df_silver                 = self.silver.run(df_events_raw, df_ref_raw, cfg.silver_out, cfg.mode_silver, cfg.ingestion_date)                                          # SILVER
         full_table                = self.gold.run(df_silver, cfg.bq_project, cfg.bq_dataset, cfg.bq_table, cfg.bq_gcs_bucket, cfg.mode_bq, cfg.gold_out, cfg.ingestion_date) # GOLD
         
         print("Silver out:", cfg.silver_out)
@@ -267,7 +275,6 @@ def main():
 
     spark.sparkContext.setLogLevel("ERROR")
     spark.conf.set("spark.sql.debug.maxToStringFields", "1000")
-    spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
     
     io = IOAdapter(spark)
     
