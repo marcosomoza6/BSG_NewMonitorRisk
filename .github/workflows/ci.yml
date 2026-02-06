@@ -35,6 +35,15 @@ jobs:
         run: |
           if [ -d tests ]; then pytest -q; else echo "No tests directory"; fi
 
+      - name: Run tests
+        run: |
+          if [ -d tests ]; then
+            PYTHONPATH=src pytest -q
+          else
+            echo "No tests directory"
+          fi
+
+
   deploy_orchestrator:
     permissions:
       contents: read
