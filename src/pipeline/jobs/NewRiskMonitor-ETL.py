@@ -29,7 +29,7 @@ def build_spark(app_name: str) -> SparkSession:
     
     if os.name == "nt":
         import sys
-        os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+        os.environ.setdefault("PYSPARK_PYTHON"       , sys.executable)
         os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
 
     return (SparkSession.builder.appName(app_name).getOrCreate())
@@ -53,21 +53,21 @@ class ETLConfig:
     
 def parse_args() -> ETLConfig:
     p = argparse.ArgumentParser(description="GDELT New Risk Monitor ETL (Landing/Bronze/Silver/Gold) - Spark/Dataproc")
-    p.add_argument("--app_name"   , default = "NewRiskMonitor-ETL", help    = "Nombre del Spark App")
+    p.add_argument("--app_name"   , default = "NewRiskMonitor-ETL", help    = "Nombre de la app del ETL")
     p.add_argument("--mode_silver", default = "overwrite"         , choices = ["overwrite", "append"])
     p.add_argument("--mode_bq"    , default = "append"            , choices = ["overwrite", "append"])
-    p.add_argument("--gold_out"   , default = ""                  , help    = "Si se especifica, exporta GOLD a CSV local y NO escribe a BigQuery.")
+    p.add_argument("--gold_out"   , default = ""                  , help    = "Si se especifica, exporta GOLD a CSV local y evita BigQuery.")
 
-    p.add_argument("--events_input"           , required = True, help = "Ruta eventos TSV (local o gs://)")
-    p.add_argument("--reference_input"        , required = True, help = "Ruta reference CSV (local o gs://)")
-    p.add_argument("--bronze_events_out"      , required = True, help = "Salida Bronze para events (local o gs://)")
-    p.add_argument("--bronze_country_risk_out", required = True, help = "Salida Bronze para country risk (local o gs://)" )
-    p.add_argument("--silver_out"             , required = True, help = "Salida Silver parquet (local o gs://)")
     p.add_argument("--bq_project"             , required = True, help = "GCP Project ID (New Risk Monitor)")
+    p.add_argument("--events_input"           , required = True, help = "Archivo de entrada para eventos CSV")
+    p.add_argument("--reference_input"        , required = True, help = "Archivo de entrada para reference CSV")
+    p.add_argument("--bronze_events_out"      , required = True, help = "Archivo de salida para Bronze Events")
+    p.add_argument("--bronze_country_risk_out", required = True, help = "Archivo de salida para Bronze Country" )
+    p.add_argument("--silver_out"             , required = True, help = "Archivo de salida para Silver parquet")
     p.add_argument("--bq_dataset"             , required = True, help = "BigQuery dataset (BSG_DS_NMR)")
     p.add_argument("--bq_table"               , required = True, help = "BigQuery table name (T_DW_BSG_GDELT_RISK_EVENTS)")
-    p.add_argument("--bq_gcs_bucket"          , required = True, help = "Bucket para staging del conector BigQuery")
-    p.add_argument("--ingestion_date"         , required = True, help = "YYYY-MM-DD (para landing bronze)")
+    p.add_argument("--bq_gcs_bucket"          , required = True, help = "Bucket para staging del conector de BigQuery")
+    p.add_argument("--ingestion_date"         , required = True, help = "Fecha de la ingesta (YYYY-MM-DD)")
     
     a = p.parse_args()
     
@@ -124,7 +124,7 @@ class BronzeLayer:
         df_events_raw = self.io.read_events_raw(events_input)
         df_ref_raw    = self.io.read_reference_raw(reference_input)
         
-        # Escribimos en el bucket o folder de bronze
+        # Escribir outputs a Bronze
         self.io.write_bronze_events(df_events_raw, bronze_events_out)
         self.io.write_bronze_reference(df_ref_raw, bronze_ref_out)
         
@@ -137,6 +137,7 @@ class SilverLayer:
     def run(self, df_events_raw, df_ref_raw, silver_out: str, mode_silver: str, ingestion_date: str):
         ingestion_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         
+        # Normalizar columnas de Events
         df = df_events_raw.select(          F.col("_c0").cast(T.LongType()).alias("globaleventid")     ,
                                   F.to_date(F.col("_c1"), "yyyyMMdd").alias("event_date")              ,
                                             F.col("_c29").cast(T.IntegerType()).alias("quadclass")     ,
@@ -147,33 +148,34 @@ class SilverLayer:
                                             F.col("_c53").cast(T.DoubleType()).alias("actiongeo_lat" ) ,
                                             F.col("_c54").cast(T.DoubleType()).alias("actiongeo_long"))
         
-        # Derivadas + limpieza básica
+        # Derivadas y limpieza básica
         df = (df.withColumn("country", F.upper(F.col("actiongeo_countrycode")))
                 .withColumn("city", F.when(F.col("actiongeo_fullname").isNull(), F.lit(None)).otherwise(F.trim(F.split(F.col("actiongeo_fullname"), ",").getItem(0))))
                 .withColumn("ingestion_date", F.lit(ingestion_date))
                 .withColumn("ingestion_ts", F.lit(ingestion_ts)))
         
-        # DQ mínimo + dedup
+        # DQ mínimo y dedup
         df = (df.filter((F.col("event_date"   ).isNotNull()) &
                         (F.col("globaleventid").isNotNull()) &
                         (F.col("country"      ).isNotNull()) &
                         (F.length(F.col("country")) == 2)).dropDuplicates(["globaleventid"]))
         
-        # Risk base por quadclass
+        # Utilizar numeros para risk base por quadclass
         df = df.withColumn("risk_weight", F.when(F.col("quadclass") == 1, F.lit(0.25))
                                            .when(F.col("quadclass") == 2, F.lit(0.50))
                                            .when(F.col("quadclass") == 3, F.lit(0.75))
                                            .when(F.col("quadclass") == 4, F.lit(1.00)).otherwise(F.lit(0.50)))
         
-        # Reference esperado: country, baseline_risk, risk_multiplier, updated_at
+        # Normalizar coumnas de Reference y descartar duplicates por pais
         df_ref = (df_ref_raw.select(F.upper(F.col("country")).alias("country")                                    ,
                                             F.col("baseline_risk").cast(T.DoubleType()).alias("baseline_risk")    ,
                                             F.col("risk_multiplier").cast(T.DoubleType()).alias("risk_multiplier"),
                                             F.col("updated_at").cast(T.StringType()).alias("updated_at")).dropDuplicates(["country"]))
         
-        # Escribir Silver Parquet particionado por event_date
-        df = (df.join(df_ref, on="country", how="left").withColumn("risk_weight_adj",F.col("risk_weight") * F.coalesce(F.col("risk_multiplier"), F.lit(1.0))))
+        # Join de ambos Dataframes por pais y ajustar valor de riesgo: events.risk_weight * country_risk.risk_multiplier
+        df = (df.join(df_ref, on = "country", how = "left").withColumn("risk_weight_adj", F.col("risk_weight") * F.coalesce(F.col("risk_multiplier"), F.lit(1.0))))
         
+        # Escribir outputs a Silver
         self.io.write_silver(df, silver_out, mode_silver)
         
         return df
@@ -187,7 +189,7 @@ class GoldLayer:
         mart = (df.groupBy("event_date", "country", "city").agg(F.count("*").alias("events_count")              , 
                                                                 F.sum("risk_weight_adj").alias("risk_score_raw"),
                                                                 F.avg("goldstein_scale").alias("avg_goldstein")).withColumn("risk_score", F.round((F.col("risk_score_raw") / F.col("events_count")) * 100, 2)).drop("risk_score_raw"))
-        # Agregar columna de ingestion date
+        # Agregar columna ingestion date
         mart = mart.withColumn("ingestion_date", F.to_date(F.lit(ingestion_date)))
 
         # Definir estructura final del mart
@@ -209,16 +211,18 @@ class GoldLayer:
         # MODO LOCAL: CSV + PRINT #
         ###########################
         if gold_out:
-            print(f"GOLD LAYER LOCAL Exportando GOLD a CSV en: {gold_out}")
-            print("GOLD LAYER LOCAL Schema:")
+            print(f"Exportando salida GOLD a CSV en: {gold_out}")
+            print( "GOLD LAYER LOCAL Schema:")
             mart_bq.printSchema()
 
-            print("\nGOLD LAYER LOCAL Data:")
+            print("----------------------------------------------------")
+            print("GOLD LAYER LOCAL Data:")
             mart_bq.show(n = 100, truncate = False)
 
-            (mart_bq.coalesce(1).write.mode("overwrite").option("header", "true").csv(gold_out)) # Exporta CSV (un solo archivo si es pequeño)
+            # Escribir outputs a Gold local
+            (mart_bq.coalesce(1).write.mode("overwrite").option("header", "true").csv(gold_out))
             
-            # Bloque para renombrar los outputfiles de part*.csv a nombre fijo y borrar los *.crc
+            # Renombrar los output files de part-*.csv a nombre fijo
             out_dir    = Path(gold_out)
             part_files = list(out_dir.glob("part-*.csv"))
 
@@ -227,14 +231,14 @@ class GoldLayer:
                 success    = out_dir / "_SUCCESS"
                 
                 if final_name.exists():
-                    final_name.unlink() # si ya existe, lo sobrescribimos
+                    final_name.unlink()
                 
                 if success.exists():
                     success.unlink()
 
                 shutil.move(str(part_files[0]), str(final_name))
 
-            # Limpiar _SUCCESS y .crc
+            # Limpiar archivos _SUCCESS y *.crc
             for f in out_dir.glob("*.crc"):
                 try:
                     f.unlink()
@@ -247,12 +251,13 @@ class GoldLayer:
         ###########################
         # MODO CLOUD: BIG-QUERY   #
         ###########################
+        # Escribir outputs a Gold en GCP
         full_table = self.io.write_bigquery(mart_bq, bq_project, bq_dataset, bq_table, bq_gcs_bucket, mode_bq)
 
         return full_table
 
 ############################
-#         Pipeline         #
+#        ETL Pipeline      #
 ############################
 class NewRiskMonitorPipeline:
     def __init__(self, io: IOAdapter):
