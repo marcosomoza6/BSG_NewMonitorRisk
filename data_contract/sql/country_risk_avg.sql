@@ -1,0 +1,6 @@
+SELECT
+  NAM_COUNTRY,
+  AVG(NUM_RISK_SCORE) AS avg_risk_score
+FROM `new-risk-monitor.BSG_DS_NMR.T_DW_BSG_GDELT_RISK_EVENTS`
+GROUP BY NAM_COUNTRY
+ORDER BY avg_risk_score DESC;

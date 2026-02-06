@@ -1,0 +1,7 @@
+SELECT
+  CONCAT(NAM_CITY, ', ', NAM_COUNTRY) AS location,
+  SUM(NUM_RISK_SCORE) AS total_risk
+FROM `new-risk-monitor.BSG_DS_NMR.T_DW_BSG_GDELT_RISK_EVENTS`
+GROUP BY location
+ORDER BY total_risk DESC
+LIMIT 10;

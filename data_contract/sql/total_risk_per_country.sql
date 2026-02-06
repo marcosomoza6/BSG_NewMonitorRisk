@@ -1,0 +1,8 @@
+SELECT
+  NAM_COUNTRY,
+  SUM(NUM_RISK_SCORE) AS total_risk_score,
+  SUM(CNT_EVENTS)     AS total_events
+FROM `new-risk-monitor.BSG_DS_NMR.T_DW_BSG_GDELT_RISK_EVENTS`
+GROUP BY NAM_COUNTRY
+ORDER BY total_risk_score DESC
+LIMIT 20;
