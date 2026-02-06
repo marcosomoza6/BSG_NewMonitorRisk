@@ -38,11 +38,11 @@ jobs:
       - name: Run tests
         run: |
           if [ -d tests ]; then
-            PYTHONPATH=src pytest -q
+            export PYTHONPATH="${{ github.workspace }}/src"
+            pytest -q
           else
             echo "No tests directory"
           fi
-
 
   deploy_orchestrator:
     permissions:
